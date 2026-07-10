@@ -77,10 +77,6 @@ contract TrancheStrategy is BaseHooks, Authorized {
         hook = IHook(_hook);
         _symbol = _trancheSymbol;
 
-        // Avoid the management setter: it accrues and hits controller.liveAssets before registration.
-        TokenizedStrategy.strategyStorage().performanceFee = 0;
-        emit IEvents.UpdatePerformanceFee(0);
-
         // Pre-approve the controller to pull underlying during `_deployFunds`.
         IERC20(_asset).forceApprove(_controller, type(uint256).max);
     }

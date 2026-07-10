@@ -31,16 +31,28 @@ contract TrancheFactory {
     address public management;
     address public emergencyAdmin;
     address public keeper;
+    address public performanceFeeRecipient;
 
     mapping(address => bool) public isDeployedTranche;
     mapping(address => bool) public isDeployedLockedTranche;
 
-    constructor(address _management, address _keeper, address _emergencyAdmin, address _authorizer) {
-        require(_management != address(0) && _emergencyAdmin != address(0) && _authorizer != address(0), "ZERO");
+    constructor(
+        address _management,
+        address _keeper,
+        address _emergencyAdmin,
+        address _authorizer,
+        address _performanceFeeRecipient
+    ) {
+        require(
+            _management != address(0) && _emergencyAdmin != address(0) && _authorizer != address(0)
+                && _performanceFeeRecipient != address(0),
+            "ZERO"
+        );
         management = _management;
         emergencyAdmin = _emergencyAdmin;
         keeper = _keeper;
         AUTHORIZER = _authorizer;
+        performanceFeeRecipient = _performanceFeeRecipient;
     }
 
     function newTrancheStrategy(
@@ -87,17 +99,27 @@ contract TrancheFactory {
         return address(tranche);
     }
 
-    function setAddresses(address _management, address _keeper, address _emergencyAdmin) external {
+    function setAddresses(
+        address _management,
+        address _keeper,
+        address _emergencyAdmin,
+        address _performanceFeeRecipient
+    ) external {
         require(msg.sender == management, "!management");
-        require(_management != address(0) && _emergencyAdmin != address(0), "ZERO");
+        require(
+            _management != address(0) && _emergencyAdmin != address(0) && _performanceFeeRecipient != address(0), "ZERO"
+        );
         management = _management;
         keeper = _keeper;
         emergencyAdmin = _emergencyAdmin;
+        performanceFeeRecipient = _performanceFeeRecipient;
     }
 
     function _configureStrategy(ITrancheStrategy _strategy) internal {
         _strategy.setKeeper(keeper);
         _strategy.setEmergencyAdmin(emergencyAdmin);
+        _strategy.setPerformanceFee(0);
+        _strategy.setPerformanceFeeRecipient(performanceFeeRecipient);
         _strategy.setPendingManagement(management);
     }
 }

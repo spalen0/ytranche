@@ -334,12 +334,9 @@ contract TrancheController is Authorized {
         return tranches[_tranche].accrualPaused;
     }
 
-    /// @notice Live NAV for a Tranche — its NAV source. Reverts if the Tranche
-    ///         is not registered.
+    /// @notice Live NAV for a Tranche
     function liveAssets(address _tranche) external view returns (uint256) {
-        Tranche storage tranche = tranches[_tranche];
-        require(tranche.registered, "!tranche");
-        return _liveAssetsView(tranche);
+        return _liveAssetsView(tranches[_tranche]);
     }
 
     /// @notice Excess recorded at settlement awaiting realisation via
@@ -387,8 +384,6 @@ contract TrancheController is Authorized {
     /// @return claim Full current claim: live NAV plus pending excess.
     /// @return covered Amount of `_tranche` claim covered by current backing.
     function trancheCoverage(address _tranche) external view returns (uint256 claim, uint256 covered) {
-        require(tranches[_tranche].registered, "!tranche");
-
         uint256 remainingBacking = backingAssets();
         address[] memory trancheAddresses = tranchesByPriority;
 

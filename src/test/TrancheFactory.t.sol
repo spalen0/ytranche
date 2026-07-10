@@ -35,7 +35,7 @@ contract TrancheFactoryTest is Setup {
     function setUp() public override {
         super.setUp();
 
-        trancheFactory = new TrancheFactory(management, keeper, address(emergencyAdmin), address(authorizer));
+        trancheFactory = new TrancheFactory(management, keeper, address(emergencyAdmin), address(authorizer), treasury);
     }
 
     function test_setHookIsGovernanceGated() public {
@@ -107,13 +107,14 @@ contract TrancheFactoryTest is Setup {
     function test_factoryAddressUpdatesAreManagementGated() public {
         vm.prank(alice);
         vm.expectRevert(bytes("!management"));
-        trancheFactory.setAddresses(alice, carol, bob);
+        trancheFactory.setAddresses(alice, carol, bob, eve);
 
         vm.prank(management);
-        trancheFactory.setAddresses(alice, carol, bob);
+        trancheFactory.setAddresses(alice, carol, bob, eve);
         assertEq(trancheFactory.management(), alice, "management");
         assertEq(trancheFactory.keeper(), carol, "keeper");
         assertEq(trancheFactory.emergencyAdmin(), bob, "emergency admin");
+        assertEq(trancheFactory.performanceFeeRecipient(), eve, "fee recipient");
     }
 
     /*//////////////////////////////////////////////////////////////
@@ -129,9 +130,9 @@ contract TrancheFactoryTest is Setup {
         ITrancheStrategy t = ITrancheStrategy(deployed);
 
         // 1. register with excessShareBps = 0 (A/B/E already sum to MAX_BPS).
-        //    Must happen before any strategy op that reads totalAssets, since the
-        //    strategy's totalAssets routes to controller.liveAssets (which reverts
-        //    "!tranche" until registered).
+        //    Must happen before any fund op: deposit/withdraw route through the
+        //    controller's onlyTranche gate, which reverts until registered.
+        //    (liveAssets itself now returns 0 for an unregistered address.)
         vm.prank(governance);
         controller.registerTranche(deployed, 0, 0);
         assertTrue(controller.isTranche(deployed), "registered");
@@ -196,7 +197,7 @@ contract TrancheFactoryTest is Setup {
         address s1 = trancheFactory.newTrancheStrategy(address(asset), "S1", "S1", address(controller), address(hook));
 
         vm.prank(management);
-        trancheFactory.setAddresses(alice, carol, bob); // management -> alice, keeper -> carol, emergency -> bob
+        trancheFactory.setAddresses(alice, carol, bob, eve); // management -> alice, keeper -> carol, emergency -> bob
 
         address s2 = trancheFactory.newTrancheStrategy(address(asset), "S2", "S2", address(controller), address(hook));
 
@@ -211,10 +212,11 @@ contract TrancheFactoryTest is Setup {
         // Old management can no longer call setAddresses.
         vm.prank(management);
         vm.expectRevert(bytes("!management"));
-        trancheFactory.setAddresses(management, keeper, address(emergencyAdmin));
+        trancheFactory.setAddresses(management, keeper, address(emergencyAdmin), treasury);
     }
 
-    /// §6.4 — factory deployments inherit the tranche constructor's zero performance fee.
+    /// §6.4 — factory sets zero performance fee and the configured fee recipient
+    /// via the proper setters at deploy time (pre-registration).
     function test_factory_performanceFeeDefaultsToZero() public {
         address atomic =
             trancheFactory.newTrancheStrategy(address(asset), "FA", "FA", address(controller), address(hook));
@@ -223,6 +225,8 @@ contract TrancheFactoryTest is Setup {
         );
         assertEq(ITrancheStrategy(atomic).performanceFee(), 0, "atomic fee");
         assertEq(ITrancheStrategy(locked).performanceFee(), 0, "locked fee");
+        assertEq(ITrancheStrategy(atomic).performanceFeeRecipient(), treasury, "atomic fee recipient");
+        assertEq(ITrancheStrategy(locked).performanceFeeRecipient(), treasury, "locked fee recipient");
     }
 
     /// §6.6 — deployment tracking mappings are set per type (and not the other).
