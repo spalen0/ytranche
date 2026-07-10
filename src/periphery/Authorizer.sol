@@ -147,8 +147,9 @@ contract Authorizer is Roles, IAuthorizer, AccessControlEnumerable {
 
     /// @dev Role renouncing is disabled. Role removal must go through the
     ///      relevant role admin via {revokeRole}.
-    function renounceRole(bytes32, address) public pure override(AccessControl, IAccessControl) {
-        revert("renounce disabled");
+    function renounceRole(bytes32 role, address account) public override(AccessControl, IAccessControl) {
+        require(role != GOVERNANCE_ROLE && role != DEFAULT_ADMIN_ROLE, "core renounce disabled");
+        super.renounceRole(role, account);
     }
 
     /// @notice Current governance holder (the single GOVERNANCE_ROLE member).

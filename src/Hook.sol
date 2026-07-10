@@ -177,7 +177,7 @@ contract Hook is IHook, Authorized {
         // Bound by the Tranche's own deposit limit AND the shared main-vault
         // ingress — a Tranche deposit routes straight into the main vault, so it
         // can never exceed what the main vault will accept.
-        return _min(_vaultDepositLimit(_tranche), _vaultDepositLimit(address(VAULT)));
+        return _min(_vaultDepositLimit(_tranche), VAULT.maxDeposit(address(CONTROLLER)));
     }
 
     function withdrawCap(address _tranche) external view returns (uint256) {

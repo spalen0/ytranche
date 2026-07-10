@@ -94,8 +94,10 @@ contract LockedTrancheStrategy is TrancheStrategy {
     ) TrancheStrategy(_asset, _name, _symbol, _controller, _hook, _authorizer) {
         require(_cooldownDuration <= MAX_COOLDOWN_DURATION, "cooldown too long");
         require(_withdrawalWindow >= MIN_WITHDRAWAL_WINDOW, "window too short");
+
         cooldownDuration = _cooldownDuration;
         withdrawalWindow = _withdrawalWindow;
+
         emit CooldownDurationUpdated(_cooldownDuration);
         emit WithdrawalWindowUpdated(_withdrawalWindow);
     }
@@ -154,7 +156,7 @@ contract LockedTrancheStrategy is TrancheStrategy {
      *         balance. Overwrites any prior pending record.
      */
     function startCooldown(uint256 _shares) external {
-        require(_shares > 0, "Invalid shares");
+        require(_shares > 0 && _shares <= type(uint128).max, "Invalid shares");
         require(cooldownDuration > 0, "no cooldown");
 
         uint256 bal = TokenizedStrategy.balanceOf(msg.sender);
