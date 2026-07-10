@@ -103,6 +103,17 @@ contract ScenariosTest is Setup {
         assertEq(bCovered, 0, "B covered");
     }
 
+    /// An unregistered address has no claim or coverage — returns (0, 0)
+    /// rather than reverting, matching liveAssets/pendingExcess.
+    function test_trancheCoverage_unregisteredReturnsZero() public {
+        _depositA(alice, 70e18);
+        _fundReserve(10e18);
+
+        (uint256 claim, uint256 covered) = controller.trancheCoverage(address(0xDEAD));
+        assertEq(claim, 0, "unregistered claim");
+        assertEq(covered, 0, "unregistered covered");
+    }
+
     function test_inv_cooledShares_remainEconomicallyActive() public {
         _depositB(alice, 20e18);
         uint256 nav0 = controller.liveAssets(address(bTranche));

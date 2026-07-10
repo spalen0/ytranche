@@ -196,6 +196,8 @@ contract Setup is Test {
         t.setProfitMaxUnlockTime(0);
         t.setKeeper(keeper);
         t.setEmergencyAdmin(address(emergencyAdmin));
+        t.setPerformanceFee(0);
+        t.setPerformanceFeeRecipient(treasury);
         t.setOpen(true);
         t.setProfitLimitRatio(type(uint16).max);
         t.setLossLimitRatio(MAX_BPS - 1);

@@ -35,6 +35,7 @@ contract DeployTrancheSystem is Script {
         address gov;
         address management;
         address keeper;
+        address performanceFeeRecipient;
         string vaultName;
         string vaultSymbol;
         uint256 vaultProfitMaxUnlockTime;
@@ -70,6 +71,7 @@ contract DeployTrancheSystem is Script {
         //config.reserveVault = vm.envAddress("RESERVE_VAULT");
         config.gov;
         config.management;
+        config.performanceFeeRecipient;
         config.vaultName = "USD yVault";
         config.vaultSymbol = "yvUSD";
         config.vaultProfitMaxUnlockTime = 2 days;
@@ -148,9 +150,24 @@ contract DeployTrancheSystem is Script {
         deployed.controller.registerTranche(address(deployed.bTranche), 500, 4000); // B: 5% target, 40% excess
         deployed.controller.registerTranche(address(deployed.eTranche), 0, 6000); // E: 0% target, 60% excess
 
-        _configureTranche(address(deployed.aTranche), address(deployed.keeper), address(deployed.emergencyAdmin));
-        _configureTranche(address(deployed.bTranche), address(deployed.keeper), address(deployed.emergencyAdmin));
-        _configureTranche(address(deployed.eTranche), address(deployed.keeper), address(deployed.emergencyAdmin));
+        _configureTranche(
+            address(deployed.aTranche),
+            address(deployed.keeper),
+            address(deployed.emergencyAdmin),
+            config.performanceFeeRecipient
+        );
+        _configureTranche(
+            address(deployed.bTranche),
+            address(deployed.keeper),
+            address(deployed.emergencyAdmin),
+            config.performanceFeeRecipient
+        );
+        _configureTranche(
+            address(deployed.eTranche),
+            address(deployed.keeper),
+            address(deployed.emergencyAdmin),
+            config.performanceFeeRecipient
+        );
 
         _configureHook(
             deployed.hook,
@@ -195,11 +212,15 @@ contract DeployTrancheSystem is Script {
         //hook.setOpen(true);
     }
 
-    function _configureTranche(address tranche, address keeper, address emergencyAdmin) internal {
+    function _configureTranche(address tranche, address keeper, address emergencyAdmin, address performanceFeeRecipient)
+        internal
+    {
         IStrategy s = IStrategy(tranche);
         s.setProfitMaxUnlockTime(2 days);
         s.setKeeper(keeper);
         s.setEmergencyAdmin(emergencyAdmin);
+        s.setPerformanceFee(0);
+        s.setPerformanceFeeRecipient(performanceFeeRecipient);
 
         ITrancheStrategy t = ITrancheStrategy(tranche);
         t.setOpen(true);

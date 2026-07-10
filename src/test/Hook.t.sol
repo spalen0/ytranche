@@ -109,6 +109,39 @@ contract HookTest is Setup {
         assertEq(ITrancheStrategy(address(aTranche)).maxWithdraw(alice), 0, "Tranche cap tracks consumed vault bucket");
     }
 
+    /// @dev `depositCap` must fold in the main-vault pause state the same way
+    ///      `withdrawCap` folds in `vaultMaxWithdraw`. A paused vault rejects
+    ///      deposits (`_max_deposit` returns 0), so the advertised cap must be 0
+    ///      too — otherwise `availableDepositLimit` shows headroom for a deposit
+    ///      that `depositFromTranche` would revert on.
+    function test_depositCap_zeroWhenVaultPaused() public {
+        // Baseline: limits are configured and the vault is live, so the cap is positive.
+        assertGt(hook.depositCap(address(aTranche)), 0, "cap positive when live");
+        assertGt(ITrancheStrategy(address(aTranche)).maxDeposit(bob), 0, "maxDeposit positive when live");
+
+        // Pause the main vault (this test contract holds Roles.ALL).
+        mainVault.setPaused(true);
+
+        // Both the Hook cap and the Tranche's advertised limit collapse to 0.
+        assertEq(hook.depositCap(address(aTranche)), 0, "cap zero when paused");
+        assertEq(ITrancheStrategy(address(aTranche)).maxDeposit(bob), 0, "maxDeposit zero when paused");
+
+        // Unpausing restores the cap.
+        mainVault.setPaused(false);
+        assertGt(hook.depositCap(address(aTranche)), 0, "cap restored after unpause");
+    }
+
+    /// @dev A vault shutdown (deposit hook cleared, deposit_limit zeroed) also
+    ///      zeroes the advertised deposit cap.
+    function test_depositCap_zeroWhenVaultShutdown() public {
+        assertGt(hook.depositCap(address(aTranche)), 0, "cap positive when live");
+
+        mainVault.shutdown_vault();
+
+        assertEq(hook.depositCap(address(aTranche)), 0, "cap zero when shutdown");
+        assertEq(ITrancheStrategy(address(aTranche)).maxDeposit(bob), 0, "maxDeposit zero when shutdown");
+    }
+
     /// §5.4 — rate-limit buckets are keyed per target, so filling one Tranche's
     /// bucket does not consume another's.
     function test_rateLimitBuckets_areIsolatedPerTranche() public {

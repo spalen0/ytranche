@@ -240,7 +240,7 @@ contract AuthorizerTest is Setup {
         // governor cannot grant it directly without going through the handoff.
         vm.expectRevert();
         authorizer.grantRole(govRole, carol);
-        vm.expectRevert(bytes("renounce disabled"));
+        vm.expectRevert(bytes("core renounce disabled"));
         authorizer.renounceRole(govRole, governance);
         vm.stopPrank();
     }
@@ -252,16 +252,29 @@ contract AuthorizerTest is Setup {
         // current default admin must use the handoff.
         vm.expectRevert();
         authorizer.grantRole(defaultAdminRole, carol);
-        vm.expectRevert(bytes("renounce disabled"));
+        vm.expectRevert(bytes("core renounce disabled"));
         authorizer.renounceRole(defaultAdminRole, governance);
         vm.stopPrank();
     }
 
-    function test_renounceRoleDisabledForNonCoreRoles() public {
+    function test_renounceAllowedForNonCoreRoles() public {
+        bytes32 mgmtRole = authorizer.MANAGEMENT_ROLE();
+        assertTrue(authorizer.hasRole(mgmtRole, management), "management holds role");
+
+        // Non-core roles can be renounced by their own holder. Recovery is still
+        // possible: DEFAULT_ADMIN_ROLE admins MANAGEMENT_ROLE and can re-grant it.
+        vm.prank(management);
+        authorizer.renounceRole(mgmtRole, management);
+
+        assertFalse(authorizer.hasRole(mgmtRole, management), "management renounced");
+    }
+
+    function test_renounceRoleIsSelfOnly() public {
         bytes32 mgmtRole = authorizer.MANAGEMENT_ROLE();
 
-        vm.prank(management);
-        vm.expectRevert(bytes("renounce disabled"));
+        // A caller can only renounce a role for itself, even for a non-core role.
+        vm.prank(carol);
+        vm.expectRevert(bytes("AccessControl: can only renounce roles for self"));
         authorizer.renounceRole(mgmtRole, management);
     }
 

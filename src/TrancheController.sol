@@ -232,15 +232,20 @@ contract TrancheController is Authorized {
 
     /// @notice Set a Tranche's annualised target rate in basis points.
     /// @dev Accrues against the old rate first.
+    /// @dev Accrual floors `baseline * rate * dt / WAD`, so an interval below
+    ///      `ceil(WAD / (rate * dt))` base units rounds to zero (remainder is not
+    ///      carried). This could effect accruals of assets checkpointed near every block
+    ///      e.g. 1.5% on 8-decimal cbBTC floors at ~1.75 units per 12s checkpoint.
     function setTrancheTargetBps(address _tranche, uint16 _newBps) external isAuthorized(GOVERNANCE_ROLE) {
         require(_newBps < MAX_BPS, "target > MAX_BPS");
         Tranche storage tranche = tranches[_tranche];
         require(tranche.registered, "!tranche");
 
         _accrue(tranche);
-        tranche.targetRatePerSecondWad = _bpsToPerSecondWad(_newBps);
+        uint256 ratePerSecondWad = _bpsToPerSecondWad(_newBps);
+        tranche.targetRatePerSecondWad = ratePerSecondWad;
 
-        emit TrancheTargetRateSet(_tranche, tranche.targetRatePerSecondWad);
+        emit TrancheTargetRateSet(_tranche, ratePerSecondWad);
     }
 
     /// @notice Set a Tranche's excess-share in basis points.
@@ -273,9 +278,13 @@ contract TrancheController is Authorized {
     /// @notice Add underlying to the reserve. Anyone may call.
     function fundReserve(uint256 _amount) external {
         require(_amount > 0, "zero");
+
+        IERC4626 _reserveVault = reserveVault;
+        require(address(_reserveVault) != address(0), "!reserve vault");
+
         ASSET.safeTransferFrom(msg.sender, address(this), _amount);
-        ASSET.forceApprove(address(reserveVault), _amount);
-        reserveVault.deposit(_amount, address(this));
+        ASSET.forceApprove(address(_reserveVault), _amount);
+        _reserveVault.deposit(_amount, address(this));
 
         emit ReserveFunded(msg.sender, _amount);
     }
@@ -294,8 +303,9 @@ contract TrancheController is Authorized {
     /// @notice Sweep stray ERC20 tokens. Main vault shares are protected because
     ///         they are Tranche backing, not recoverable dust.
     function sweep(address _token, uint256 _amount, address _receiver) external isAuthorized(GOVERNANCE_ROLE) {
-        require(_token != address(VAULT), "protected token");
+        require(_token != address(VAULT) && _token != address(reserveVault), "protected token");
         require(_token != address(0) && _amount > 0 && _receiver != address(0), "bad arg");
+
         IERC20(_token).safeTransfer(_receiver, _amount);
 
         emit TokenSwept(_token, _receiver, _amount);
@@ -324,12 +334,9 @@ contract TrancheController is Authorized {
         return tranches[_tranche].accrualPaused;
     }
 
-    /// @notice Live NAV for a Tranche — its NAV source. Reverts if the Tranche
-    ///         is not registered.
+    /// @notice Live NAV for a Tranche
     function liveAssets(address _tranche) external view returns (uint256) {
-        Tranche memory tranche = tranches[_tranche];
-        require(tranche.registered, "!tranche");
-        return _liveAssetsView(tranche);
+        return _liveAssetsView(tranches[_tranche]);
     }
 
     /// @notice Excess recorded at settlement awaiting realisation via
@@ -352,8 +359,9 @@ contract TrancheController is Authorized {
 
     /// @notice Reserve held in the 4626 vault.
     function reserveAssets() public view returns (uint256) {
-        if (address(reserveVault) == address(0)) return 0;
-        return reserveVault.convertToAssets(reserveVault.balanceOf(address(this)));
+        IERC4626 _reserveVault = reserveVault;
+        if (address(_reserveVault) == address(0)) return 0;
+        return _reserveVault.convertToAssets(_reserveVault.balanceOf(address(this)));
     }
 
     /// @notice Total assets backing Tranche claims: main-vault NAV plus reserve.
@@ -367,7 +375,7 @@ contract TrancheController is Authorized {
     function totalClaims() public view returns (uint256 total) {
         address[] memory trancheAddresses = tranchesByPriority;
         for (uint256 i = 0; i < trancheAddresses.length; ++i) {
-            Tranche memory tranche = tranches[trancheAddresses[i]];
+            Tranche storage tranche = tranches[trancheAddresses[i]];
             total += _liveAssetsView(tranche) + tranche.pendingExcess;
         }
     }
@@ -376,14 +384,12 @@ contract TrancheController is Authorized {
     /// @return claim Full current claim: live NAV plus pending excess.
     /// @return covered Amount of `_tranche` claim covered by current backing.
     function trancheCoverage(address _tranche) external view returns (uint256 claim, uint256 covered) {
-        require(tranches[_tranche].registered, "!tranche");
-
         uint256 remainingBacking = backingAssets();
         address[] memory trancheAddresses = tranchesByPriority;
 
         for (uint256 i = 0; i < trancheAddresses.length; ++i) {
             address trancheAddress = trancheAddresses[i];
-            Tranche memory tranche = tranches[trancheAddress];
+            Tranche storage tranche = tranches[trancheAddress];
             uint256 trancheClaim = _liveAssetsView(tranche) + tranche.pendingExcess;
             uint256 trancheCovered = _min(trancheClaim, remainingBacking);
 
@@ -493,13 +499,13 @@ contract TrancheController is Authorized {
      *      the loss order is constant regardless of unrealised excess.
      */
     function settle() external isAuthorized(KEEPER_ROLE) {
-        uint256 numberOfTranches = tranchesByPriority.length;
+        address[] memory trancheAddresses = tranchesByPriority;
 
         // 1. Accrue every Tranche and total up the system's claim:
         //    Σ (baselineAssets + pendingExcess).
         uint256 totalClaim;
-        for (uint256 i = 0; i < numberOfTranches; ++i) {
-            Tranche storage tranche = tranches[tranchesByPriority[i]];
+        for (uint256 i = 0; i < trancheAddresses.length; ++i) {
+            Tranche storage tranche = tranches[trancheAddresses[i]];
             _accrue(tranche);
             totalClaim += tranche.baselineAssets + tranche.pendingExcess;
         }
@@ -511,8 +517,8 @@ contract TrancheController is Authorized {
             // 3. Profit path — record the surplus as pending excess by share.
             uint256 excess = uint256(pnl);
 
-            for (uint256 i = 0; i < numberOfTranches; ++i) {
-                address trancheAddress = tranchesByPriority[i];
+            for (uint256 i = 0; i < trancheAddresses.length; ++i) {
+                address trancheAddress = trancheAddresses[i];
                 Tranche storage tranche = tranches[trancheAddress];
 
                 // Resume accrual for any Tranche paused by an earlier loss.
@@ -545,10 +551,10 @@ contract TrancheController is Authorized {
             // 4b. Then Tranches in REVERSE priority (junior first). Each Tranche
             //     absorbs from its total claim, pending excess first, then baseline.
             //     Any loss to the Tranche (pending and/or baseline) pauses target accrual.
-            for (uint256 i = numberOfTranches; i > 0; --i) {
+            for (uint256 i = trancheAddresses.length; i > 0; --i) {
                 if (loss == 0) break;
 
-                address trancheAddress = tranchesByPriority[i - 1];
+                address trancheAddress = trancheAddresses[i - 1];
                 Tranche storage tranche = tranches[trancheAddress];
 
                 uint256 fromPending = _min(loss, tranche.pendingExcess);
@@ -588,10 +594,11 @@ contract TrancheController is Authorized {
      *      rounding cannot make asset-exact `withdraw` revert.
      */
     function _drawReserveToMain(uint256 _amount) internal returns (uint256 received) {
-        uint256 sharesToRedeem = _min(reserveVault.maxRedeem(address(this)), reserveVault.previewWithdraw(_amount));
+        IERC4626 _reserveVault = reserveVault;
+        uint256 sharesToRedeem = _min(_reserveVault.maxRedeem(address(this)), _reserveVault.previewWithdraw(_amount));
 
         uint256 balanceBefore = ASSET.balanceOf(address(this));
-        reserveVault.redeem(sharesToRedeem, address(this), address(this));
+        _reserveVault.redeem(sharesToRedeem, address(this), address(this));
         received = ASSET.balanceOf(address(this)) - balanceBefore;
 
         if (received > 0) {
@@ -606,7 +613,7 @@ contract TrancheController is Authorized {
     //////////////////////////////////////////////////////////////*/
 
     /// @dev View-only live NAV for `_tranche` (no state change).
-    function _liveAssetsView(Tranche memory _tranche) internal view returns (uint256) {
+    function _liveAssetsView(Tranche storage _tranche) internal view returns (uint256) {
         if (_tranche.accrualPaused) return _tranche.baselineAssets;
         uint256 dt = block.timestamp - _tranche.lastAccrual;
         if (dt == 0) return _tranche.baselineAssets;
