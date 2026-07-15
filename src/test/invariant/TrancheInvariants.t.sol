@@ -4,11 +4,11 @@ pragma solidity ^0.8.18;
 import {console2} from "forge-std/console2.sol";
 import {Setup} from "../utils/Setup.sol";
 import {TrancheHandler} from "./handlers/TrancheHandler.sol";
-import {MockMainVault} from "../mocks/MockMainVault.sol";
 import {TokenizedStrategy} from "@tokenized-strategy/TokenizedStrategy.sol";
 import {IStrategy} from "@tokenized-strategy/interfaces/IStrategy.sol";
+import {IVaultFactory} from "@yearn-vaults/interfaces/IVaultFactory.sol";
 import {ILockedTrancheStrategy} from "../../interfaces/ITrancheStrategy.sol";
-import {IVault} from "@yearn-vaults/interfaces/IVault.sol";
+import {VyperDeployer} from "../../../lib/yearn-vaults-v3/foundry_tests/utils/VyperDeployer.sol";
 
 /// @notice Stateful invariant suite. Drives the protocol through long randomized
 ///         action sequences via {TrancheHandler} and asserts the core accounting
@@ -65,11 +65,11 @@ contract TrancheInvariants is Setup {
         targetSelector(FuzzSelector({addr: address(handler), selectors: _selectors()}));
     }
 
+    /// @dev Install the local TokenizedStrategy implementation without pulling
+    ///      mainnet state into the invariant campaign.
     function _selectFork() internal override {
-        if (TOKENIZED_STRATEGY_ADDRESS.code.length == 0) {
-            TokenizedStrategy tokenizedStrategy = new TokenizedStrategy(address(0));
-            vm.etch(TOKENIZED_STRATEGY_ADDRESS, address(tokenizedStrategy).code);
-        }
+        TokenizedStrategy tokenizedStrategy = new TokenizedStrategy(address(0));
+        vm.etch(TOKENIZED_STRATEGY_ADDRESS, address(tokenizedStrategy).code);
 
         require(
             keccak256(bytes(IStrategy(TOKENIZED_STRATEGY_ADDRESS).apiVersion())) == keccak256(bytes("3.1.0")),
@@ -77,8 +77,14 @@ contract TrancheInvariants is Setup {
         );
     }
 
-    function _deployMainVault() internal override returns (IVault) {
-        return IVault(address(new MockMainVault(address(asset))));
+    /// @dev Compile and deploy the canonical Vyper VaultV3 implementation and
+    ///      factory locally. The base Setup then deploys the main vault through
+    ///      this factory exactly as it does in the fork-backed integration tests.
+    function _deployVaultFactory() internal override returns (IVaultFactory) {
+        VyperDeployer deployer = new VyperDeployer();
+        address original = deployer.deployContract("lib/yearn-vaults-v3/contracts/", "VaultV3");
+        bytes memory args = abi.encode("Invariant Vault Factory", original, address(this));
+        return IVaultFactory(deployer.deployContract("lib/yearn-vaults-v3/contracts/", "VaultFactory", args));
     }
 
     function _giveManagement(address tranche) internal {

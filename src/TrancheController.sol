@@ -591,21 +591,25 @@ contract TrancheController is Authorized {
     /**
      * @dev Redeem reserve-vault shares and deposit the received assets into the
      *      main vault. Uses share-exact redemption for full drains so 4626
-     *      rounding cannot make asset-exact `withdraw` revert.
+     *      rounding cannot make asset-exact `withdraw` revert. Skips the draw
+     *      when the main vault is shut down or would mint zero shares, avoiding
+     *      stranded underlying on this contract.
      */
     function _drawReserveToMain(uint256 _amount) internal returns (uint256 received) {
+        if (VAULT.isShutdown()) return 0;
+
         IERC4626 _reserveVault = reserveVault;
         uint256 sharesToRedeem = _min(_reserveVault.maxRedeem(address(this)), _reserveVault.previewWithdraw(_amount));
+  
+        if (_reserveVault.previewRedeem(sharesToRedeem) == 0) return 0;
 
-        uint256 balanceBefore = ASSET.balanceOf(address(this));
-        _reserveVault.redeem(sharesToRedeem, address(this), address(this));
-        received = ASSET.balanceOf(address(this)) - balanceBefore;
+        received = _reserveVault.redeem(sharesToRedeem, address(this), address(this));
 
-        if (received > 0) {
-            reserveDepositInProgress = true;
-            VAULT.deposit(received, address(this));
-            reserveDepositInProgress = false;
-        }
+        if (VAULT.previewDeposit(received) == 0) return 0;
+
+        reserveDepositInProgress = true;
+        VAULT.deposit(received, address(this));
+        reserveDepositInProgress = false;
     }
 
     /*//////////////////////////////////////////////////////////////
