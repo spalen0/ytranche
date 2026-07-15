@@ -65,6 +65,24 @@ contract EmergencyAdminTest is Setup {
         assertApproxEqAbs(asset.balanceOf(alice), 50e18, 1e15, "alice exited after shutdown");
     }
 
+    function test_settleAfterVaultShutdown_doesNotDrawReserve() public {
+        _depositA(alice, 70e18);
+        _fundReserve(10e18);
+        _simulateRiskyPnL(-int256(5e18));
+
+        vm.prank(management);
+        emergencyAdmin.shutdownVault(address(mainVault));
+
+        _settle();
+
+        assertApproxEqAbs(controller.reserveAssets(), 10e18, 1, "reserve stays invested");
+        assertEq(asset.balanceOf(address(controller)), 0, "controller strands no assets");
+        assertApproxEqAbs(controller.vaultAssets(), 65e18, 1, "shutdown vault gets no deposit");
+        assertApproxEqAbs(controller.liveAssets(address(aTranche)), 65e18, 1, "tranche absorbs uncovered loss");
+        assertTrue(controller.isAccrualPaused(address(aTranche)), "loss pauses tranche accrual");
+        assertFalse(controller.reserveDepositInProgress(), "reserve deposit flag stays clear");
+    }
+
     function test_pauseStrategy_isScoped() public {
         _grantEmergency(carol);
         vm.prank(carol);

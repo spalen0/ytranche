@@ -314,16 +314,7 @@ contract TrancheHandler is Test {
 
     function settle() external track("settle", true) {
         vm.prank(keeper);
-        try controller.settle() {}
-        catch Error(string memory reason) {
-            // Tolerate ONLY the trusted vault's dust-rounding revert, where settle
-            // redeposits a sub-one-share reserve amount into a PPS-above-1 vault
-            // ("ZERO_SHARES"). This is a vault rounding artifact at dust scale,
-            // not a protocol bug; re-revert anything else so fail_on_revert still
-            // catches real settle failures.
-            require(keccak256(bytes(reason)) == keccak256("ZERO_SHARES"), reason);
-            lastCallWasSettle = false; // settle did not complete; skip post-settle checks
-        }
+        controller.settle();
     }
 
     // The handler is set as each tranche's strategy-management in the test setUp,

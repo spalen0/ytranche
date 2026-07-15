@@ -42,8 +42,8 @@ import {Roles} from "./Roles.sol";
  *  pending holder claims the live role through {grantRole}. Pending core roles
  *  are single-holder. The claim path rejects no-op/self claims, clears the
  *  pending role, revokes the prior live holder, and asserts the role stayed
- *  single-holder. Role renouncing is disabled; non-core removals must go
- *  through the relevant role admin via {revokeRole}.
+ *  single-holder. Core roles cannot be renounced. Holders may renounce non-core
+ *  roles themselves, or the relevant role admin may remove them via {revokeRole}.
  */
 contract Authorizer is Roles, IAuthorizer, AccessControlEnumerable {
     bytes32 public constant PENDING_GOVERNANCE_ROLE = keccak256("PENDING_GOVERNANCE_ROLE");
@@ -145,8 +145,8 @@ contract Authorizer is Roles, IAuthorizer, AccessControlEnumerable {
         _setRoleAdmin(role, adminRole);
     }
 
-    /// @dev Role renouncing is disabled. Role removal must go through the
-    ///      relevant role admin via {revokeRole}.
+    /// @dev Core roles cannot be renounced. Non-core roles use the normal
+    ///      AccessControl path, which only lets an account renounce its own role.
     function renounceRole(bytes32 role, address account) public override(AccessControl, IAccessControl) {
         require(role != GOVERNANCE_ROLE && role != DEFAULT_ADMIN_ROLE, "core renounce disabled");
         super.renounceRole(role, account);

@@ -168,8 +168,12 @@ contract Setup is Test {
         }
     }
 
+    function _deployVaultFactory() internal virtual returns (IVaultFactory) {
+        return IVaultFactory(VAULT_FACTORY_ADDRESS);
+    }
+
     function _deployMainVault() internal virtual returns (IVault) {
-        vaultFactory = IVaultFactory(VAULT_FACTORY_ADDRESS);
+        vaultFactory = _deployVaultFactory();
         return IVault(vaultFactory.deploy_new_vault(address(asset), "Main", "MAIN", address(this), 0));
     }
 

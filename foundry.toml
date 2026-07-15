@@ -18,8 +18,8 @@ remappings = [
 ]
 
 # Stateful invariant runs. Handler is revert-safe so reverts surface as findings.
-# Raise runs/depth for nightly; kept modest here because each call drives the
-# local invariant main-vault harness.
+# Raise runs/depth for nightly; kept modest because each suite deploys and drives
+# a canonical Yearn V3 vault compiled locally from the vendored Vyper source.
 [invariant]
 runs = 256
 depth = 50
